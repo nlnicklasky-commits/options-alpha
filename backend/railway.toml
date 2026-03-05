@@ -8,3 +8,9 @@ healthcheckPath = "/api/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+
+# Cron jobs are configured via Railway dashboard:
+# 1. daily_update.py  - Schedule: 30 22 * * 1-5  (6:30 PM ET, weekdays only)
+#    Command: python -m scripts.daily_update
+# 2. retrain_model.py - Schedule: 0 6 * * 0      (2:00 AM ET, Sundays)
+#    Command: python -m scripts.retrain_model

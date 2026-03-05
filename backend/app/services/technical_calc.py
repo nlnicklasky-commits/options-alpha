@@ -74,6 +74,8 @@ class TechnicalCalculator:
         Returns a DataFrame indexed by date with all 82+ feature columns.
         """
         df = bars_df.copy()
+        if df.empty:
+            return pd.DataFrame()
         df = df.sort_values("date").reset_index(drop=True)
 
         o, h, l, c, v = df["open"], df["high"], df["low"], df["close"], df["volume"]

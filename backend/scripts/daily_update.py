@@ -90,6 +90,21 @@ async def update_stock(
             await session.execute(stmt)
             await session.commit()
 
+        # Fetch and store today's options data
+        try:
+            eod_records = await orchestrator.fetch_options_eod(
+                symbol, today - timedelta(days=7), today
+            )
+            if eod_records:
+                snapshot = orchestrator.theta.aggregate_options_snapshot(
+                    eod_records, today
+                )
+                if snapshot:
+                    async with async_session() as session:
+                        await upsert_options_snapshot(session, stock.id, snapshot)
+        except Exception:
+            logger.warning("Options data failed for %s, continuing", symbol, exc_info=True)
+
         return True
     except Exception:
         logger.exception("Failed to update %s", symbol)

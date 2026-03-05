@@ -57,7 +57,7 @@ class RateLimiter:
 
     async def acquire(self) -> None:
         await self._semaphore.acquire()
-        asyncio.get_event_loop().call_later(self._interval, self._semaphore.release)
+        asyncio.get_running_loop().call_later(self._interval, self._semaphore.release)
 
 
 async def _backoff_request(
@@ -602,12 +602,12 @@ class DataIngestionOrchestrator:
 
     async def fetch_current_options_chain(self, symbol: str) -> list[dict[str, Any]]:
         """Fetch current options chain from yfinance (sync, run in executor)."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.yfinance.get_current_options_chain, symbol)
 
     async def fetch_macro_data(self, start_date: date) -> list[dict[str, Any]]:
         """Fetch macro data from FRED (sync, run in executor)."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.fred.get_macro_data, start_date)
 
     async def build_stock_universe(self, session: AsyncSession) -> list[int]:

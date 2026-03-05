@@ -14,6 +14,7 @@ import time
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 # Add backend dir to path so we can import app modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -88,41 +89,69 @@ async def seed_stock(
         # 3. Compute patterns for latest bar
         patterns = pattern_det.detect_all(bars_df)
 
-        # 4. Store technical snapshots (batch upsert)
+        # 4. Store technical snapshots (batched upsert, 500 rows at a time)
+        BATCH_SIZE = 500
+        all_rows: list[dict] = []
+        last_date = features_df["date"].iloc[-1]
+
+        for _, row in features_df.iterrows():
+            snapshot_data: dict[str, Any] = {"stock_id": stock.id, "date": row["date"]}
+            for col in features_df.columns:
+                if col == "date":
+                    continue
+                val = row[col]
+                if pd.isna(val):
+                    snapshot_data[col] = None
+                elif isinstance(val, bool):
+                    snapshot_data[col] = val
+                elif col in ("volume_sma_20", "obv"):
+                    snapshot_data[col] = int(val)
+                elif col in (
+                    "higher_highs_5d", "higher_lows_5d",
+                    "consecutive_up_days", "consecutive_down_days",
+                ):
+                    snapshot_data[col] = int(val)
+                else:
+                    snapshot_data[col] = Decimal(str(round(float(val), 4)))
+
+            # Add pattern scores to the latest snapshot only
+            if row["date"] == last_date:
+                snapshot_data.update(patterns)
+
+            all_rows.append(snapshot_data)
+
         async with async_session() as session:
-            for _, row in features_df.iterrows():
-                snapshot_data = {"stock_id": stock.id, "date": row["date"]}
-                for col in features_df.columns:
-                    if col == "date":
-                        continue
-                    val = row[col]
-                    if pd.isna(val):
-                        snapshot_data[col] = None
-                    elif isinstance(val, bool):
-                        snapshot_data[col] = val
-                    elif col in ("volume_sma_20", "obv"):
-                        snapshot_data[col] = int(val)
-                    elif col in (
-                        "higher_highs_5d", "higher_lows_5d",
-                        "consecutive_up_days", "consecutive_down_days",
-                    ):
-                        snapshot_data[col] = int(val)
-                    else:
-                        snapshot_data[col] = Decimal(str(round(float(val), 4)))
-
-                # Add pattern scores to the latest snapshot only
-                if row["date"] == features_df["date"].iloc[-1]:
-                    snapshot_data.update(patterns)
-
-                stmt = pg_insert(TechnicalSnapshot).values(**snapshot_data)
+            for i in range(0, len(all_rows), BATCH_SIZE):
+                batch = all_rows[i : i + BATCH_SIZE]
+                stmt = pg_insert(TechnicalSnapshot).values(batch)
+                update_cols = {
+                    col: stmt.excluded[col]
+                    for col in batch[0]
+                    if col not in ("stock_id", "date")
+                }
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_technical_snapshots_stock_date",
-                    set_={k: v for k, v in snapshot_data.items() if k not in ("stock_id", "date")},
+                    set_=update_cols,
                 )
                 await session.execute(stmt)
             await session.commit()
 
-        # 5. Update checkpoint
+        # 5. Fetch and store options data (last 365 days)
+        try:
+            opts_start = end_date - timedelta(days=OPTIONS_DAYS_BACK)
+            eod_records = await orchestrator.fetch_options_eod(symbol, opts_start, end_date)
+            if eod_records:
+                snapshot = orchestrator.theta.aggregate_options_snapshot(
+                    eod_records, end_date
+                )
+                if snapshot:
+                    async with async_session() as session:
+                        await upsert_options_snapshot(session, stock.id, snapshot)
+                logger.debug("%s: stored options snapshot from %d EOD records", symbol, len(eod_records))
+        except Exception:
+            logger.warning("Options data failed for %s, continuing", symbol, exc_info=True)
+
+        # 6. Update checkpoint
         async with async_session() as session:
             await update_last_seeded_date(session, stock.id, end_date)
 

@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(printf 'n\\\\nn\\\\n')",
+      "Bash(yes \"\")",
+      "Bash(.venv/Scripts/pip install -e .)",
+      "Bash(.venv/Scripts/pip search thetadata)",
+      "Bash(.venv/Scripts/pip index versions thetadata)",
+      "Bash(.venv/Scripts/python -c \"from app.models import Base, Stock, DailyBar, TechnicalSnapshot, OptionsSnapshot, OptionsFlow, MarketRegime, Signal, BacktestRun, BacktestTrade, TradeJournal; print\\(f''All {len\\(Base.metadata.tables\\)} tables imported successfully''\\); print\\(''Tables:'', list\\(Base.metadata.tables.keys\\(\\)\\)\\)\")",
+      "Bash(.venv/Scripts/alembic revision --autogenerate -m \"initial schema\" --sql)",
+      "Bash(.venv/Scripts/python -c \"from alembic.config import Config; from alembic import command; c = Config\\(''alembic.ini''\\); print\\(''Alembic config loaded successfully''\\)\")",
+      "Bash(pg_isready)",
+      "Bash(\"/c/Program Files/PostgreSQL/16/bin/pg_isready\")",
+      "Bash(\"/c/Program Files/PostgreSQL/15/bin/pg_isready\")",
+      "Bash(\"/c/Program Files/PostgreSQL/17/bin/pg_isready\")",
+      "Bash(\"/c/Program Files/PostgreSQL/16/bin/psql\" -U postgres -c \"CREATE DATABASE options_alpha;\")",
+      "Bash(\"/c/Program Files/PostgreSQL/17/bin/psql\" -U postgres -c \"SELECT 1;\")",
+      "Bash(PGPASSWORD=postgres \"/c/Program Files/PostgreSQL/17/bin/psql\" -U postgres -c \"CREATE DATABASE options_alpha;\")",
+      "Bash(PGPASSWORD=\"Y@nkees21\" \"/c/Program Files/PostgreSQL/17/bin/psql\" -U postgres -c \"SELECT 1;\")",
+      "Bash(.venv/Scripts/python -c \":*)",
+      "Bash(.venv/Scripts/python -c \"from app.models import Base, Stock, DailyBar, TechnicalSnapshot, OptionsSnapshot, OptionsFlow, MarketRegime, Signal, BacktestRun, BacktestTrade, TradeJournal; print\\(''All models import OK''\\); print\\(f''{len\\(Base.metadata.tables\\)} tables''\\)\")",
+      "Bash(.venv/Scripts/alembic upgrade head)",
+      "Bash(python -c \":*)",
+      "Bash(\"/c/Program Files/Docker/Docker/resources/bin/docker\" --version)",
+      "Bash(cmd.exe /c \"docker --version\")"
+    ]
+  }
+}
