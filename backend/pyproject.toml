@@ -25,6 +25,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "yfinance>=0.2.36",
     "fredapi>=0.5.1",
+    "thetadata",
 ]
 
 [project.optional-dependencies]

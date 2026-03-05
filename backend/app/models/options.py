@@ -38,6 +38,24 @@ class OptionsSnapshot(Base):
     total_call_oi: Mapped[int | None] = mapped_column(BigInteger)
     total_put_oi: Mapped[int | None] = mapped_column(BigInteger)
 
+    # IV detail
+    iv_vs_hv_ratio: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    iv_call_atm: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    iv_put_atm: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+
+    # OI / volume changes
+    call_oi_change: Mapped[int | None] = mapped_column(Integer)
+    put_oi_change: Mapped[int | None] = mapped_column(Integer)
+    call_volume_vs_avg: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    max_single_call_volume: Mapped[int | None] = mapped_column(Integer)
+
+    # Front-month ATM call
+    front_atm_call_bid: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    front_atm_call_ask: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    front_atm_call_spread_pct: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    front_atm_call_volume: Mapped[int | None] = mapped_column(Integer)
+    front_atm_call_oi: Mapped[int | None] = mapped_column(Integer)
+
     # ATM greeks (nearest ATM call)
     atm_delta: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     atm_gamma: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))

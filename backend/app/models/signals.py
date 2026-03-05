@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -23,12 +24,21 @@ class Signal(Base):
     pattern_score: Mapped[Numeric | None] = mapped_column(Numeric(5, 2))
     composite_score: Mapped[Numeric | None] = mapped_column(Numeric(5, 2))
 
+    momentum_score: Mapped[Numeric | None] = mapped_column(Numeric(5, 2))
+    volume_score: Mapped[Numeric | None] = mapped_column(Numeric(5, 2))
+    regime_score: Mapped[Numeric | None] = mapped_column(Numeric(5, 2))
+
+    expected_move_pct: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    confidence: Mapped[Numeric | None] = mapped_column(Numeric(5, 4))
+
     suggested_strike: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
     suggested_expiry: Mapped[date | None] = mapped_column(Date)
     suggested_entry_price: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    suggested_dte: Mapped[int | None] = mapped_column(Integer)
     risk_reward_ratio: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
 
     model_version: Mapped[str | None] = mapped_column(String(50))
+    feature_importance_json: Mapped[dict | None] = mapped_column(JSONB)
     notes: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -53,8 +63,14 @@ class BacktestRun(Base):
     max_drawdown: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     sharpe_ratio: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     profit_factor: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    sortino_ratio: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    avg_days_held: Mapped[Numeric | None] = mapped_column(Numeric(8, 2))
+    expectancy: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
 
     parameters: Mapped[str | None] = mapped_column(Text)  # JSON string of params
+    results_by_regime: Mapped[dict | None] = mapped_column(JSONB)
+    results_by_score_bucket: Mapped[dict | None] = mapped_column(JSONB)
+    results_by_pattern: Mapped[dict | None] = mapped_column(JSONB)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -76,6 +92,8 @@ class BacktestTrade(Base):
     exit_price: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
     return_pct: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     signal_score: Mapped[Numeric | None] = mapped_column(Numeric(5, 2))
+    pattern_type: Mapped[str | None] = mapped_column(String(50))
+    regime: Mapped[str | None] = mapped_column(String(20))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

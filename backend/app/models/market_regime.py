@@ -19,6 +19,7 @@ class MarketRegime(Base):
     vix_close: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     vix_sma_20: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     vix_percentile: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    vvix: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
 
     # Breadth
     advance_decline_ratio: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
@@ -28,10 +29,20 @@ class MarketRegime(Base):
     new_lows: Mapped[int | None] = mapped_column(Integer)
     mcclellan_oscillator: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
 
+    # Breadth derived
+    high_low_ratio: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+
+    # Index daily returns
+    spy_daily_return: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    qqq_daily_return: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    iwm_daily_return: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+
     # Sector rotation
     leading_sector: Mapped[str | None] = mapped_column(String(100))
     lagging_sector: Mapped[str | None] = mapped_column(String(100))
     sector_dispersion: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    xlk_vs_spy: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    xly_vs_xlp: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
 
     # Rates
     us_10y_yield: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
