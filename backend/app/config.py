@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -8,6 +9,15 @@ class Settings(BaseSettings):
     fred_api_key: str = ""
     thetadata_username: str = ""
     thetadata_password: str = ""
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_db_url(cls, v: str) -> str:
+        if v.startswith("postgresql://"):
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif v.startswith("postgres://"):
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+        return v
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
