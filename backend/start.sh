@@ -1,20 +1,22 @@
 #!/bin/sh
-# Skip alembic for now — just test if uvicorn can start
 exec python -c "
-import sys
-print('=== Python startup test ===', file=sys.stderr, flush=True)
-try:
-    print('=== Importing app... ===', file=sys.stderr, flush=True)
-    from app.main import app
-    print('=== Import OK ===', file=sys.stderr, flush=True)
-except Exception as e:
-    print(f'=== IMPORT FAILED: {e} ===', file=sys.stderr, flush=True)
-    sys.exit(1)
+import sys, os, subprocess
 
-import os
+# Run alembic migrations (sync engine via psycopg2)
+print('=== Running alembic migrations ===', file=sys.stderr, flush=True)
+result = subprocess.run(['alembic', 'upgrade', 'head'], capture_output=True, text=True)
+print(result.stdout, file=sys.stderr, flush=True)
+if result.stderr:
+    print(result.stderr, file=sys.stderr, flush=True)
+if result.returncode != 0:
+    print(f'=== Alembic failed with exit code {result.returncode} ===', file=sys.stderr, flush=True)
+    sys.exit(1)
+print('=== Migrations complete ===', file=sys.stderr, flush=True)
+
+# Start uvicorn
+from app.main import app
+import uvicorn
 port = int(os.environ.get('PORT', 8000))
 print(f'=== Starting uvicorn on port {port} ===', file=sys.stderr, flush=True)
-
-import uvicorn
 uvicorn.run(app, host='0.0.0.0', port=port, log_level='info')
 "
