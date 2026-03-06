@@ -152,23 +152,6 @@ async def trigger_train(request: TrainRequest, background_tasks: BackgroundTasks
     )
 
 
-@router.get("/debug/version")
-async def debug_version() -> dict:
-    """Check deployed code version."""
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-    # Force reimport
-    if "scripts.seed_historical" in sys.modules:
-        del sys.modules["scripts.seed_historical"]
-    from scripts.seed_historical import YEARS_BACK
-    import scripts.seed_historical as sh
-    # Read BATCH_SIZE from source
-    src = Path(sh.__file__).read_text()
-    batch_line = [l.strip() for l in src.split("\n") if "BATCH_SIZE" in l]
-    return {"batch_lines": batch_line, "years_back": YEARS_BACK, "file": sh.__file__}
-
-
 @router.get("/debug/db-counts")
 async def debug_db_counts() -> dict:
     """Temporary: check row counts in each table."""
@@ -399,7 +382,8 @@ async def debug_seed_one(symbol: str) -> dict:
         result["steps"].append(f"Computed {len(patterns)} patterns")
 
         # 5. Build rows (same as seed_stock)
-        BATCH_SIZE = 500
+        # asyncpg caps at 32767 query params; ~73 cols × 400 rows = 29200 < limit
+        BATCH_SIZE = 400
         all_rows: list[dict] = []
         last_date = features_df["date"].iloc[-1]
 
