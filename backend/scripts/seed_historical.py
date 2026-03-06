@@ -124,17 +124,29 @@ async def seed_stock(
         async with async_session() as session:
             for i in range(0, len(all_rows), BATCH_SIZE):
                 batch = all_rows[i : i + BATCH_SIZE]
+                # Collect ALL unique keys across batch (last row may have pattern cols)
+                all_keys: set[str] = set()
+                for row_dict in batch:
+                    all_keys.update(row_dict.keys())
                 stmt = pg_insert(TechnicalSnapshot).values(batch)
                 update_cols = {
                     col: stmt.excluded[col]
-                    for col in batch[0]
+                    for col in all_keys
                     if col not in ("stock_id", "date")
                 }
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_technical_snapshots_stock_date",
                     set_=update_cols,
                 )
-                await session.execute(stmt)
+                try:
+                    await session.execute(stmt)
+                except Exception:
+                    logger.exception(
+                        "%s: batch %d failed (%d rows, %d cols, %d params)",
+                        symbol, i // BATCH_SIZE, len(batch), len(all_keys),
+                        len(batch) * len(all_keys),
+                    )
+                    raise
             await session.commit()
 
         # 5. Fetch and store options data (last 365 days)

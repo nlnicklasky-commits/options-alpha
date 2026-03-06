@@ -422,10 +422,14 @@ async def debug_seed_one(symbol: str) -> dict:
             async with async_session() as session:
                 for i in range(0, len(all_rows), BATCH_SIZE):
                     batch = all_rows[i : i + BATCH_SIZE]
+                    # Collect ALL unique keys across batch (last row may have pattern cols)
+                    all_keys: set = set()
+                    for row_dict in batch:
+                        all_keys.update(row_dict.keys())
                     stmt = pg_insert(TechnicalSnapshot).values(batch)
                     update_cols = {
                         col: stmt.excluded[col]
-                        for col in batch[0]
+                        for col in all_keys
                         if col not in ("stock_id", "date")
                     }
                     stmt = stmt.on_conflict_do_update(
@@ -433,7 +437,7 @@ async def debug_seed_one(symbol: str) -> dict:
                         set_=update_cols,
                     )
                     await session.execute(stmt)
-                    result["steps"].append(f"Batch {i // BATCH_SIZE + 1} upserted ({len(batch)} rows)")
+                    result["steps"].append(f"Batch {i // BATCH_SIZE + 1} upserted ({len(batch)} rows, {len(all_keys)} cols, {len(batch)*len(all_keys)} params)")
                 await session.commit()
                 result["steps"].append("Commit succeeded!")
         except Exception as e:
