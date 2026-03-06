@@ -622,7 +622,13 @@ class DataIngestionOrchestrator:
         return await loop.run_in_executor(None, self.fred.get_macro_data, start_date)
 
     async def build_stock_universe(self, session: AsyncSession) -> list[int]:
-        """Fetch S&P 500 + Russell 2000 and upsert into stocks table."""
+        """Fetch S&P 500 + Russell 2000 and upsert into stocks table.
+
+        Uses Wikipedia (S&P 500) and iShares (Russell 2000) for the symbol lists,
+        which are free and don't require Polygon API calls. Polygon ticker metadata
+        is fetched opportunistically — if it fails (e.g. free-tier rate limits),
+        we still proceed with just the symbol names.
+        """
         sp500 = await self.polygon.get_sp500_symbols()
         russell2000 = await self.polygon.get_russell2000_symbols()
         logger.info("Fetched %d S&P 500, %d Russell 2000 symbols", len(sp500), len(russell2000))
@@ -630,8 +636,15 @@ class DataIngestionOrchestrator:
         all_symbols = sp500 | russell2000
         logger.info("Total unique symbols: %d", len(all_symbols))
 
-        polygon_tickers = await self.polygon.get_stock_universe()
-        ticker_info = {t["ticker"]: t for t in polygon_tickers if t.get("ticker") in all_symbols}
+        # Try to get ticker metadata from Polygon (names, sectors, market cap)
+        # but don't fail if it doesn't work (free tier may rate-limit)
+        ticker_info: dict[str, dict] = {}
+        try:
+            polygon_tickers = await self.polygon.get_stock_universe()
+            ticker_info = {t["ticker"]: t for t in polygon_tickers if t.get("ticker") in all_symbols}
+            logger.info("Got Polygon metadata for %d tickers", len(ticker_info))
+        except Exception:
+            logger.warning("Polygon ticker metadata fetch failed (OK — using symbol names only)")
 
         stock_ids: list[int] = []
         for symbol in sorted(all_symbols):
