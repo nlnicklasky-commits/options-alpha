@@ -18,6 +18,10 @@ class SeedRequest(BaseModel):
     resume: bool = True
 
 
+class TrainRequest(BaseModel):
+    label_type: str = "breakout"
+
+
 class JobStatus(BaseModel):
     job_id: str
     status: str  # "running", "completed", "failed"
@@ -68,6 +72,27 @@ async def _run_daily(job_id: str) -> None:
         _jobs[job_id]["completed_at"] = datetime.now().isoformat()
 
 
+async def _run_train(job_id: str, label_type: str) -> None:
+    """Run model retraining in background."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+    from scripts.retrain_model import main as retrain_main
+
+    _jobs[job_id]["status"] = "running"
+    try:
+        await retrain_main(label_type=label_type)
+        _jobs[job_id]["status"] = "completed"
+        _jobs[job_id]["message"] = "Model training completed successfully"
+    except Exception as exc:
+        logger.exception("Train job %s failed", job_id)
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["message"] = str(exc)
+    finally:
+        _jobs[job_id]["completed_at"] = datetime.now().isoformat()
+
+
 @router.post("/seed", response_model=JobStatus)
 async def trigger_seed(request: SeedRequest, background_tasks: BackgroundTasks) -> JobStatus:
     """Trigger historical data seeding as a background task."""
@@ -97,6 +122,24 @@ async def trigger_daily(background_tasks: BackgroundTasks) -> JobStatus:
         "message": None,
     }
     background_tasks.add_task(_run_daily, job_id)
+    return JobStatus(
+        job_id=job_id,
+        status="starting",
+        started_at=_jobs[job_id]["started_at"],
+    )
+
+
+@router.post("/train", response_model=JobStatus)
+async def trigger_train(request: TrainRequest, background_tasks: BackgroundTasks) -> JobStatus:
+    """Trigger model retraining as a background task."""
+    job_id = f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    _jobs[job_id] = {
+        "status": "starting",
+        "started_at": datetime.now().isoformat(),
+        "completed_at": None,
+        "message": None,
+    }
+    background_tasks.add_task(_run_train, job_id, request.label_type)
     return JobStatus(
         job_id=job_id,
         status="starting",

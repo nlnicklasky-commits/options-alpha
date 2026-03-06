@@ -282,6 +282,55 @@ class ModelTrainer:
         logger.info("Model saved to %s", path)
         return path
 
+    @staticmethod
+    async def save_model_to_db(
+        session: AsyncSession,
+        models: dict[str, object],
+        meta_learner: LogisticRegression,
+        feature_names: list[str],
+        version: str,
+        metrics: dict[str, float] | None = None,
+        sample_count: int = 0,
+    ) -> None:
+        """Persist model artifact as binary blob in PostgreSQL for Railway deploys."""
+        import io
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from app.models.model_artifact import ModelArtifact
+
+        artifact = {
+            "models": models,
+            "meta_learner": meta_learner,
+            "feature_names": feature_names,
+            "version": version,
+            "metrics": metrics or {},
+        }
+
+        buf = io.BytesIO()
+        joblib.dump(artifact, buf)
+        blob = buf.getvalue()
+
+        stmt = pg_insert(ModelArtifact).values(
+            version=version,
+            artifact_blob=blob,
+            file_size_bytes=len(blob),
+            metrics=metrics,
+            feature_count=len(feature_names),
+            sample_count=sample_count,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["version"],
+            set_={
+                "artifact_blob": blob,
+                "file_size_bytes": len(blob),
+                "metrics": metrics,
+                "feature_count": len(feature_names),
+                "sample_count": sample_count,
+            },
+        )
+        await session.execute(stmt)
+        await session.commit()
+        logger.info("Model v%s saved to database (%d bytes)", version, len(blob))
+
     async def full_training_run(
         self,
         start_date: date | None = None,
@@ -332,6 +381,15 @@ class ModelTrainer:
         version = end_date.strftime("%Y%m%d")
         feature_names = self.feature_builder.get_feature_names()
         model_path = self.save_model(best_models, best_meta, feature_names, version, avg_metrics)
+
+        # Also persist to database so model survives container restarts
+        try:
+            await self.save_model_to_db(
+                self.session, best_models, best_meta, feature_names,
+                version, avg_metrics, sample_count=len(X),
+            )
+        except Exception:
+            logger.exception("Failed to save model to DB (filesystem copy still available)")
 
         result = {
             "version": version,

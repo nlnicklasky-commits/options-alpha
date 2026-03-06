@@ -33,31 +33,96 @@ class ModelScorer:
         self.session = session
         self._artifact: dict | None = None
 
-    def load_model(self, version: str = "latest") -> None:
-        """Load ensemble from joblib."""
+    def load_model(self, version: str = "latest") -> bool:
+        """Load ensemble from joblib. Returns True if loaded, False if no model found."""
+        # Try filesystem first
         if version == "latest":
             latest_file = MODELS_DIR / "latest.txt"
             if not latest_file.exists():
-                raise FileNotFoundError("No trained model found. Run training first.")
+                # Try loading from DB
+                if self._load_from_db():
+                    return True
+                logger.warning("No trained model found. Run training first.")
+                return False
             model_name = latest_file.read_text().strip()
             path = MODELS_DIR / model_name
         else:
             path = MODELS_DIR / f"ensemble_v{version}.joblib"
 
         if not path.exists():
-            raise FileNotFoundError(f"Model not found: {path}")
+            # Try loading from DB
+            if self._load_from_db(version):
+                return True
+            logger.warning("Model not found: %s", path)
+            return False
 
         self._artifact = joblib.load(path)
         logger.info("Loaded model version: %s", self._artifact.get("version", "unknown"))
+        return True
 
-    def _ensure_loaded(self) -> dict:
+    def _load_from_db(self, version: str = "latest") -> bool:
+        """Try to load model artifact from PostgreSQL (sync query via run_sync)."""
+        try:
+            import io
+            from sqlalchemy import select as sync_select
+            from app.models.model_artifact import ModelArtifact
+
+            # Use a sync approach: we'll do this in score methods that are async
+            # For now, just mark as not available — async load handled separately
+            return False
+        except Exception:
+            logger.exception("Failed to load model from DB")
+            return False
+
+    async def _try_load_from_db(self) -> bool:
+        """Async: load latest model artifact from PostgreSQL."""
+        try:
+            from app.models.model_artifact import ModelArtifact
+
+            stmt = (
+                select(ModelArtifact)
+                .order_by(ModelArtifact.created_at.desc())
+                .limit(1)
+            )
+            result = await self.session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return False
+
+            import io
+            artifact = joblib.load(io.BytesIO(row.artifact_blob))
+            self._artifact = artifact
+            logger.info("Loaded model version %s from database", artifact.get("version", "unknown"))
+
+            # Cache to filesystem for faster next load
+            try:
+                MODELS_DIR.mkdir(parents=True, exist_ok=True)
+                version = artifact.get("version", "unknown")
+                path = MODELS_DIR / f"ensemble_v{version}.joblib"
+                joblib.dump(artifact, path)
+                latest_path = MODELS_DIR / "latest.txt"
+                latest_path.write_text(f"ensemble_v{version}.joblib")
+                logger.info("Cached model to filesystem: %s", path)
+            except Exception:
+                logger.warning("Could not cache model to filesystem (OK on ephemeral deploys)")
+
+            return True
+        except Exception:
+            logger.exception("Failed to load model from database")
+            return False
+
+    def _ensure_loaded(self) -> dict | None:
         if self._artifact is None:
-            self.load_model()
-        return self._artifact  # type: ignore[return-value]
+            loaded = self.load_model()
+            if not loaded:
+                return None
+        return self._artifact
 
-    def _predict(self, X: pd.DataFrame) -> np.ndarray:
+    def _predict(self, X: pd.DataFrame) -> np.ndarray | None:
         """Run ensemble prediction, return probabilities 0-1."""
         artifact = self._ensure_loaded()
+        if artifact is None:
+            return None
         models = artifact["models"]
         meta = artifact["meta_learner"]
         feature_names = artifact["feature_names"]
@@ -71,7 +136,20 @@ class ModelScorer:
 
     async def score_single(self, symbol: str) -> dict:
         """Compute features for today and score a single stock."""
+        # Try DB load if filesystem load failed
         artifact = self._ensure_loaded()
+        if artifact is None:
+            loaded = await self._try_load_from_db()
+            if not loaded:
+                return {
+                    "symbol": symbol.upper(),
+                    "error": "No trained model available. Run training first.",
+                    "composite_score": 0,
+                    "breakout_probability": 0,
+                    "component_scores": {},
+                    "top_features": [],
+                }
+            artifact = self._artifact
 
         stmt = select(Stock).where(Stock.symbol == symbol.upper())
         result = await self.session.execute(stmt)
@@ -122,6 +200,12 @@ class ModelScorer:
     async def score_universe(self, min_score: float = 0.0) -> list[dict]:
         """Score all active stocks, store in signals table, return results."""
         artifact = self._ensure_loaded()
+        if artifact is None:
+            loaded = await self._try_load_from_db()
+            if not loaded:
+                logger.warning("No model available for scoring universe")
+                return []
+            artifact = self._artifact
 
         stmt = select(Stock).where(Stock.is_active.is_(True))
         result = await self.session.execute(stmt)

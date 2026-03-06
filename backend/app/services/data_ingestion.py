@@ -593,12 +593,23 @@ class DataIngestionOrchestrator:
     async def fetch_options_eod(
         self, symbol: str, start_date: date, end_date: date
     ) -> list[dict[str, Any]]:
-        """Fetch historical options EOD from Theta Data."""
+        """Fetch historical options EOD — Theta Data primary, yfinance fallback."""
         try:
-            return await self.theta.get_options_eod(symbol, start_date, end_date)
+            results = await self.theta.get_options_eod(symbol, start_date, end_date)
+            if results:
+                return results
         except Exception:
-            logger.exception("Theta Data EOD failed for %s", symbol)
-            return []
+            logger.warning("Theta Data EOD failed for %s, trying yfinance fallback", symbol)
+
+        # Fallback: use yfinance for current options snapshot data
+        try:
+            chain = await self.fetch_current_options_chain(symbol)
+            if chain:
+                logger.info("Got %d option records from yfinance for %s", len(chain), symbol)
+                return chain
+        except Exception:
+            logger.exception("yfinance options fallback also failed for %s", symbol)
+        return []
 
     async def fetch_current_options_chain(self, symbol: str) -> list[dict[str, Any]]:
         """Fetch current options chain from yfinance (sync, run in executor)."""
