@@ -54,18 +54,34 @@ async def _run_seed(job_id: str, symbols: list[str] | None, resume: bool) -> Non
 
 
 async def _run_daily(job_id: str) -> None:
-    """Run daily_update in background."""
+    """Run daily_update + scoring in background."""
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
     from scripts.daily_update import main as daily_main
+    from app.database import async_session
+    from app.services.model_scorer import ModelScorer
 
     _jobs[job_id]["status"] = "running"
     try:
+        # Step 1: Fetch latest data
         await daily_main()
-        _jobs[job_id]["status"] = "completed"
-        _jobs[job_id]["message"] = "Daily update completed successfully"
+        _jobs[job_id]["message"] = "Data refresh done, scoring..."
+
+        # Step 2: Score all stocks with the trained model
+        async with async_session() as session:
+            scorer = ModelScorer(session)
+            loaded = scorer.load_model()
+            if not loaded:
+                loaded = await scorer._try_load_from_db()
+            if loaded:
+                results = await scorer.score_universe(min_score=0.0)
+                _jobs[job_id]["status"] = "completed"
+                _jobs[job_id]["message"] = f"Daily update done, scored {len(results)} stocks"
+            else:
+                _jobs[job_id]["status"] = "completed"
+                _jobs[job_id]["message"] = "Daily update done (no model for scoring yet)"
     except Exception as exc:
         logger.exception("Daily job %s failed", job_id)
         _jobs[job_id]["status"] = "failed"
