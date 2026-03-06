@@ -20,6 +20,8 @@ class SeedRequest(BaseModel):
 
 class TrainRequest(BaseModel):
     label_type: str = "breakout"
+    start_date: str | None = None
+    end_date: str | None = None
 
 
 class JobStatus(BaseModel):
@@ -72,9 +74,10 @@ async def _run_daily(job_id: str) -> None:
         _jobs[job_id]["completed_at"] = datetime.now().isoformat()
 
 
-async def _run_train(job_id: str, label_type: str) -> None:
+async def _run_train(job_id: str, label_type: str, start_date: str | None = None, end_date: str | None = None) -> None:
     """Run model retraining in background."""
     import sys
+    from datetime import date as date_cls
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -82,7 +85,9 @@ async def _run_train(job_id: str, label_type: str) -> None:
 
     _jobs[job_id]["status"] = "running"
     try:
-        await retrain_main(label_type=label_type)
+        sd = date_cls.fromisoformat(start_date) if start_date else None
+        ed = date_cls.fromisoformat(end_date) if end_date else None
+        await retrain_main(start_date=sd, end_date=ed, label_type=label_type)
         _jobs[job_id]["status"] = "completed"
         _jobs[job_id]["message"] = "Model training completed successfully"
     except Exception as exc:
@@ -139,7 +144,7 @@ async def trigger_train(request: TrainRequest, background_tasks: BackgroundTasks
         "completed_at": None,
         "message": None,
     }
-    background_tasks.add_task(_run_train, job_id, request.label_type)
+    background_tasks.add_task(_run_train, job_id, request.label_type, request.start_date, request.end_date)
     return JobStatus(
         job_id=job_id,
         status="starting",

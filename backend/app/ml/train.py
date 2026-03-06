@@ -115,8 +115,8 @@ class ModelTrainer:
         X: pd.DataFrame,
         y: pd.Series,
         dates: pd.Series,
-        train_years: int = 3,
-        val_months: int = 6,
+        train_years: int = 2,
+        val_months: int = 3,
     ) -> Generator[tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series], None, None]:
         """Walk-forward cross-validation splits.
 
