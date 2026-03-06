@@ -152,6 +152,42 @@ async def trigger_train(request: TrainRequest, background_tasks: BackgroundTasks
     )
 
 
+@router.get("/debug/db-counts")
+async def debug_db_counts() -> dict:
+    """Temporary: check row counts in each table."""
+    from sqlalchemy import text
+    from app.database import async_session
+
+    async with async_session() as session:
+        tables = [
+            "stocks", "daily_bars", "technical_snapshots",
+            "options_snapshots", "options_flow", "market_regimes",
+            "signals", "model_artifacts",
+        ]
+        counts = {}
+        for t in tables:
+            try:
+                result = await session.execute(text(f"SELECT COUNT(*) FROM {t}"))
+                counts[t] = result.scalar()
+            except Exception as e:
+                counts[t] = f"error: {e}"
+
+        # Also get a sample technical snapshot
+        try:
+            result = await session.execute(
+                text("SELECT stock_id, date, sma_50, rsi_14 FROM technical_snapshots LIMIT 3")
+            )
+            rows = result.all()
+            counts["sample_technicals"] = [
+                {"stock_id": r[0], "date": str(r[1]), "sma_50": str(r[2]), "rsi_14": str(r[3])}
+                for r in rows
+            ]
+        except Exception as e:
+            counts["sample_technicals"] = f"error: {e}"
+
+        return counts
+
+
 @router.get("/status", response_model=list[JobStatus])
 async def get_pipeline_status() -> list[JobStatus]:
     """Get status of all pipeline jobs."""
