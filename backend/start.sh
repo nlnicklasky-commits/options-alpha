@@ -1,13 +1,20 @@
 #!/bin/sh
-set -e
+# Skip alembic for now — just test if uvicorn can start
+exec python -c "
+import sys
+print('=== Python startup test ===', file=sys.stderr, flush=True)
+try:
+    print('=== Importing app... ===', file=sys.stderr, flush=True)
+    from app.main import app
+    print('=== Import OK ===', file=sys.stderr, flush=True)
+except Exception as e:
+    print(f'=== IMPORT FAILED: {e} ===', file=sys.stderr, flush=True)
+    sys.exit(1)
 
-echo "=== Running migrations ===" >&2
-alembic upgrade head 2>&1 >&2
-echo "=== Migrations done ===" >&2
+import os
+port = int(os.environ.get('PORT', 8000))
+print(f'=== Starting uvicorn on port {port} ===', file=sys.stderr, flush=True)
 
-echo "=== Testing app import ===" >&2
-python -c "from app.main import app; print('Import OK', flush=True)" 2>&1 >&2
-echo "=== Import test passed ===" >&2
-
-echo "=== Starting uvicorn on port ${PORT:-8000} ===" >&2
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" 2>&1
+import uvicorn
+uvicorn.run(app, host='0.0.0.0', port=port, log_level='info')
+"
