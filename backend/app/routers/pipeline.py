@@ -316,6 +316,142 @@ async def debug_test_technicals() -> dict:
     return result
 
 
+@router.get("/debug/seed-one/{symbol}")
+async def debug_seed_one(symbol: str) -> dict:
+    """Seed one stock with full error reporting."""
+    import traceback
+    from datetime import date as date_cls, timedelta
+    from decimal import Decimal
+
+    import pandas as pd
+    from sqlalchemy import select, text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.database import async_session
+    from app.models.stocks import Stock
+    from app.models.technicals import TechnicalSnapshot
+    from app.services.data_ingestion import DataIngestionOrchestrator
+    from app.services.pattern_detect import PatternDetector
+    from app.services.technical_calc import TechnicalCalculator
+
+    result: dict = {"symbol": symbol, "steps": []}
+    orchestrator = DataIngestionOrchestrator()
+    try:
+        # 1. Get stock
+        async with async_session() as session:
+            stmt = select(Stock).where(Stock.symbol == symbol.upper())
+            res = await session.execute(stmt)
+            stock = res.scalar_one_or_none()
+            if not stock:
+                return {**result, "error": f"{symbol} not found in stocks table"}
+        result["stock_id"] = stock.id
+        result["steps"].append(f"Got stock {symbol} id={stock.id}")
+
+        # 2. Fetch bars
+        end_date = date_cls.today()
+        start_date = end_date - timedelta(days=3 * 365)
+        bars = await orchestrator.fetch_daily_bars(symbol.upper(), start_date, end_date)
+        result["bars_fetched"] = len(bars) if bars else 0
+        result["steps"].append(f"Fetched {len(bars) if bars else 0} bars")
+
+        if not bars:
+            return {**result, "error": "No bars returned from Polygon"}
+
+        # 3. Compute technicals
+        bars_df = pd.DataFrame(bars)
+        for col in ("open", "high", "low", "close"):
+            bars_df[col] = bars_df[col].astype(float)
+        bars_df["volume"] = bars_df["volume"].astype(float)
+
+        tech_calc = TechnicalCalculator()
+        spy_bars = await orchestrator.fetch_daily_bars("SPY", start_date, end_date)
+        spy_df = None
+        if spy_bars:
+            spy_df = pd.DataFrame(spy_bars)
+            for col in ("open", "high", "low", "close"):
+                spy_df[col] = spy_df[col].astype(float)
+
+        features_df = tech_calc.compute_historical(bars_df, spy_df)
+        result["features_shape"] = list(features_df.shape)
+        result["steps"].append(f"Computed technicals: {features_df.shape}")
+
+        # 4. Patterns
+        pattern_det = PatternDetector()
+        patterns = pattern_det.detect_all(bars_df)
+        result["patterns"] = {k: str(v) for k, v in patterns.items()}
+        result["steps"].append(f"Computed {len(patterns)} patterns")
+
+        # 5. Build rows (same as seed_stock)
+        BATCH_SIZE = 500
+        all_rows: list[dict] = []
+        last_date = features_df["date"].iloc[-1]
+
+        for _, row in features_df.iterrows():
+            snapshot_data: dict = {"stock_id": stock.id, "date": row["date"]}
+            for col in features_df.columns:
+                if col == "date":
+                    continue
+                val = row[col]
+                if pd.isna(val):
+                    snapshot_data[col] = None
+                elif isinstance(val, bool):
+                    snapshot_data[col] = val
+                elif col in ("volume_sma_20", "obv"):
+                    snapshot_data[col] = int(val)
+                elif col in ("higher_highs_5d", "higher_lows_5d", "consecutive_up_days", "consecutive_down_days"):
+                    snapshot_data[col] = int(val)
+                else:
+                    snapshot_data[col] = Decimal(str(round(float(val), 4)))
+
+            if row["date"] == last_date:
+                snapshot_data.update(patterns)
+
+            all_rows.append(snapshot_data)
+
+        result["total_rows"] = len(all_rows)
+        result["last_row_keys"] = list(all_rows[-1].keys()) if all_rows else []
+        result["first_row_keys"] = list(all_rows[0].keys()) if all_rows else []
+        result["steps"].append(f"Built {len(all_rows)} snapshot rows")
+
+        # 6. Try batch upsert (same as seed_stock)
+        try:
+            async with async_session() as session:
+                for i in range(0, len(all_rows), BATCH_SIZE):
+                    batch = all_rows[i : i + BATCH_SIZE]
+                    stmt = pg_insert(TechnicalSnapshot).values(batch)
+                    update_cols = {
+                        col: stmt.excluded[col]
+                        for col in batch[0]
+                        if col not in ("stock_id", "date")
+                    }
+                    stmt = stmt.on_conflict_do_update(
+                        constraint="uq_technical_snapshots_stock_date",
+                        set_=update_cols,
+                    )
+                    await session.execute(stmt)
+                    result["steps"].append(f"Batch {i // BATCH_SIZE + 1} upserted ({len(batch)} rows)")
+                await session.commit()
+                result["steps"].append("Commit succeeded!")
+        except Exception as e:
+            result["batch_error"] = str(e)
+            result["batch_traceback"] = traceback.format_exc()
+
+        # 7. Check count
+        async with async_session() as session:
+            count_res = await session.execute(text(
+                "SELECT COUNT(*) FROM technical_snapshots WHERE stock_id = :sid"
+            ), {"sid": stock.id})
+            result["technicals_count"] = count_res.scalar()
+
+    except Exception as e:
+        result["error"] = str(e)
+        result["traceback"] = traceback.format_exc()
+    finally:
+        await orchestrator.close()
+
+    return result
+
+
 @router.get("/status", response_model=list[JobStatus])
 async def get_pipeline_status() -> list[JobStatus]:
     """Get status of all pipeline jobs."""
