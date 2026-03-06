@@ -49,7 +49,7 @@ class TechnicalSnapshot(Base):
     stoch_d: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     stoch_rsi: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     williams_r: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
-    cci_20: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
+    cci_20: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
     mfi_14: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
 
     # Trend (NUMERIC 8,4)
@@ -82,8 +82,8 @@ class TechnicalSnapshot(Base):
     volume_sma_20: Mapped[int | None] = mapped_column(BigInteger)
     volume_ratio: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     obv: Mapped[int | None] = mapped_column(BigInteger)
-    obv_slope_10d: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
-    ad_line: Mapped[Numeric | None] = mapped_column(Numeric(16, 4))
+    obv_slope_10d: Mapped[Numeric | None] = mapped_column(Numeric(20, 4))
+    ad_line: Mapped[Numeric | None] = mapped_column(Numeric(20, 4))
     cmf_20: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
     vwap_distance_pct: Mapped[Numeric | None] = mapped_column(Numeric(8, 4))
 
