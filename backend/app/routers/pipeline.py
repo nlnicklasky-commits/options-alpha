@@ -188,6 +188,117 @@ async def debug_db_counts() -> dict:
         return counts
 
 
+@router.get("/debug/test-technicals")
+async def debug_test_technicals() -> dict:
+    """Temporary: test technical computation + upsert for one stock."""
+    import traceback
+    from datetime import date as date_cls, timedelta
+    from decimal import Decimal
+
+    import pandas as pd
+    from sqlalchemy import select, text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.database import async_session
+    from app.models.stocks import Stock
+    from app.models.technicals import TechnicalSnapshot
+    from app.services.data_ingestion import DataIngestionOrchestrator
+    from app.services.technical_calc import TechnicalCalculator
+
+    result: dict = {"steps": []}
+
+    try:
+        # 1. Get a stock
+        async with async_session() as session:
+            stmt = select(Stock).where(Stock.symbol == "AAPL")
+            res = await session.execute(stmt)
+            stock = res.scalar_one_or_none()
+            if not stock:
+                return {"error": "AAPL not found in stocks table"}
+            result["stock_id"] = stock.id
+            result["steps"].append("Got AAPL stock record")
+
+        # 2. Get bars from DB
+        async with async_session() as session:
+            bars_res = await session.execute(
+                text("SELECT date, open, high, low, close, volume FROM daily_bars WHERE stock_id = :sid ORDER BY date LIMIT 800"),
+                {"sid": stock.id},
+            )
+            bars_rows = bars_res.all()
+            result["bars_count"] = len(bars_rows)
+            result["steps"].append(f"Got {len(bars_rows)} bars from DB")
+
+        if not bars_rows:
+            return {**result, "error": "No bars in DB for AAPL"}
+
+        # 3. Build DataFrame
+        bars_df = pd.DataFrame(bars_rows, columns=["date", "open", "high", "low", "close", "volume"])
+        for col in ("open", "high", "low", "close"):
+            bars_df[col] = bars_df[col].astype(float)
+        bars_df["volume"] = bars_df["volume"].astype(float)
+        result["steps"].append("Built bars DataFrame")
+
+        # 4. Compute technicals
+        tech_calc = TechnicalCalculator()
+        features_df = tech_calc.compute_historical(bars_df)
+        result["features_shape"] = list(features_df.shape)
+        result["feature_columns"] = list(features_df.columns[:10])
+        result["steps"].append(f"Computed technicals: {features_df.shape}")
+
+        if features_df.empty:
+            return {**result, "error": "compute_historical returned empty DataFrame"}
+
+        # 5. Build one row for upsert
+        row = features_df.iloc[-1]
+        snapshot_data: dict = {"stock_id": stock.id, "date": row["date"]}
+        for col in features_df.columns:
+            if col == "date":
+                continue
+            val = row[col]
+            if pd.isna(val):
+                snapshot_data[col] = None
+            elif isinstance(val, (bool,)):
+                snapshot_data[col] = val
+            elif col in ("volume_sma_20", "obv"):
+                snapshot_data[col] = int(val)
+            elif col in ("higher_highs_5d", "higher_lows_5d", "consecutive_up_days", "consecutive_down_days"):
+                snapshot_data[col] = int(val)
+            else:
+                snapshot_data[col] = Decimal(str(round(float(val), 4)))
+
+        result["snapshot_keys"] = list(snapshot_data.keys())[:15]
+        result["snapshot_sample"] = {k: str(v) for k, v in list(snapshot_data.items())[:8]}
+        result["steps"].append("Built snapshot dict")
+
+        # 6. Try upsert
+        async with async_session() as session:
+            stmt = pg_insert(TechnicalSnapshot).values([snapshot_data])
+            update_cols = {
+                col: stmt.excluded[col]
+                for col in snapshot_data
+                if col not in ("stock_id", "date")
+            }
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_technical_snapshots_stock_date",
+                set_=update_cols,
+            )
+            await session.execute(stmt)
+            await session.commit()
+            result["steps"].append("Upsert succeeded!")
+
+        # 7. Verify
+        async with async_session() as session:
+            count_res = await session.execute(text("SELECT COUNT(*) FROM technical_snapshots"))
+            result["technicals_count_after"] = count_res.scalar()
+            result["steps"].append("Verification complete")
+
+    except Exception as e:
+        result["error"] = str(e)
+        result["traceback"] = traceback.format_exc()
+
+    return result
+
+
 @router.get("/status", response_model=list[JobStatus])
 async def get_pipeline_status() -> list[JobStatus]:
     """Get status of all pipeline jobs."""

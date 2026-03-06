@@ -156,8 +156,8 @@ async def seed_stock(
             await update_last_seeded_date(session, stock.id, end_date)
 
         return True
-    except Exception:
-        logger.exception("Failed to seed %s", symbol)
+    except Exception as exc:
+        logger.exception("Failed to seed %s: %s", symbol, exc)
         return False
 
 
