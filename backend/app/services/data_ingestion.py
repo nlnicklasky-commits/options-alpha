@@ -153,11 +153,16 @@ class PolygonClient(DataProvider):
             if header_idx is None:
                 logger.warning("Could not parse IWM holdings CSV")
                 return set()
+            import re
             from io import StringIO
             csv_text = "\n".join(lines[header_idx:])
             df = pd.read_csv(StringIO(csv_text))
             ticker_col = [c for c in df.columns if "ticker" in c.lower()][0]
-            return set(df[ticker_col].dropna().astype(str).tolist())
+            # Filter to valid stock symbols only (1-10 uppercase chars, may include hyphen)
+            # This excludes footer/copyright text that iShares appends to the CSV
+            valid_ticker = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+            raw = df[ticker_col].dropna().astype(str).tolist()
+            return {t for t in raw if valid_ticker.match(t)}
         except Exception:
             logger.exception("Failed to fetch Russell 2000 from iShares")
             return set()
