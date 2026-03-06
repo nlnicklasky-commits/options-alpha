@@ -89,8 +89,9 @@ async def seed_stock(
         # 3. Compute patterns for latest bar
         patterns = pattern_det.detect_all(bars_df)
 
-        # 4. Store technical snapshots (batched upsert, 500 rows at a time)
-        BATCH_SIZE = 500
+        # 4. Store technical snapshots
+        # asyncpg caps at 32767 query params; 73 cols × 400 rows = 29200 < limit
+        BATCH_SIZE = 400
         all_rows: list[dict] = []
         last_date = features_df["date"].iloc[-1]
 
