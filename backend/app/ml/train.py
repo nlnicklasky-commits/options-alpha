@@ -97,16 +97,33 @@ class ModelTrainer:
         y = df["label"].copy()
         dates_series = df["date"].copy()
 
-        # Forward fill then drop remaining NaNs
-        X = X.ffill().bfill()
-        mask = ~X.isna().any(axis=1)
-        X = X.loc[mask]
-        y = y.loc[mask]
-        dates_series = dates_series.loc[mask]
+        # Drop columns that are entirely NaN (e.g. options/regime cols when no data exists)
+        all_nan_cols = X.columns[X.isna().all()].tolist()
+        if all_nan_cols:
+            logger.warning(
+                "Dropping %d all-NaN columns: %s",
+                len(all_nan_cols), all_nan_cols[:10],
+            )
+            X = X.drop(columns=all_nan_cols)
+            # Update feature builder's feature names to match
+            self.feature_builder._feature_names = [
+                f for f in self.feature_builder._feature_names if f not in all_nan_cols
+            ]
+
+        # Forward fill then backward fill within groups, then fill remaining with 0
+        X = X.ffill().bfill().fillna(0)
+        y = y.loc[X.index]
+        dates_series = dates_series.loc[X.index]
+
+        # Drop rows where label is NaN
+        valid = ~y.isna()
+        X = X.loc[valid]
+        y = y.loc[valid]
+        dates_series = dates_series.loc[valid]
 
         logger.info(
-            "Prepared data: %d samples, %d features, %.1f%% positive",
-            len(X), X.shape[1], y.mean() * 100,
+            "Prepared data: %d samples, %d features (dropped %d all-NaN cols), %.1f%% positive",
+            len(X), X.shape[1], len(all_nan_cols), y.mean() * 100 if len(y) > 0 else 0,
         )
         return X, y, dates_series
 
@@ -115,13 +132,14 @@ class ModelTrainer:
         X: pd.DataFrame,
         y: pd.Series,
         dates: pd.Series,
-        train_years: int = 2,
+        train_years: int = 1,
         val_months: int = 3,
     ) -> Generator[tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series], None, None]:
         """Walk-forward cross-validation splits.
 
         Yields (X_train, y_train, X_val, y_val) tuples, rolling forward
-        by val_months each iteration.
+        by val_months each iteration. Uses expanding window (all data up to
+        val_start is used for training).
         """
         unique_dates = sorted(dates.unique())
         if not unique_dates:
@@ -341,7 +359,7 @@ class ModelTrainer:
         if end_date is None:
             end_date = date.today()
         if start_date is None:
-            start_date = end_date - timedelta(days=365 * 4)  # 4 years
+            start_date = end_date - timedelta(days=365 * 3)  # 3 years (match seed window)
 
         logger.info("Starting training run: %s to %s", start_date, end_date)
 
