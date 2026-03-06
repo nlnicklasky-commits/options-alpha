@@ -134,6 +134,50 @@ async def trigger_daily(background_tasks: BackgroundTasks) -> JobStatus:
     )
 
 
+async def _run_score(job_id: str) -> None:
+    """Run model scoring for all active stocks in background."""
+    from app.database import async_session
+    from app.services.model_scorer import ModelScorer
+
+    _jobs[job_id]["status"] = "running"
+    try:
+        async with async_session() as session:
+            scorer = ModelScorer(session)
+            loaded = scorer.load_model()
+            if not loaded:
+                loaded = await scorer._try_load_from_db()
+            if not loaded:
+                raise ValueError("No trained model found. Run training first.")
+
+            results = await scorer.score_universe(min_score=0.0)
+            _jobs[job_id]["status"] = "completed"
+            _jobs[job_id]["message"] = f"Scored {len(results)} stocks"
+    except Exception as exc:
+        logger.exception("Score job %s failed", job_id)
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["message"] = str(exc)
+    finally:
+        _jobs[job_id]["completed_at"] = datetime.now().isoformat()
+
+
+@router.post("/score", response_model=JobStatus)
+async def trigger_score(background_tasks: BackgroundTasks) -> JobStatus:
+    """Trigger model scoring for all active stocks."""
+    job_id = f"score_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    _jobs[job_id] = {
+        "status": "starting",
+        "started_at": datetime.now().isoformat(),
+        "completed_at": None,
+        "message": None,
+    }
+    background_tasks.add_task(_run_score, job_id)
+    return JobStatus(
+        job_id=job_id,
+        status="starting",
+        started_at=_jobs[job_id]["started_at"],
+    )
+
+
 @router.post("/train", response_model=JobStatus)
 async def trigger_train(request: TrainRequest, background_tasks: BackgroundTasks) -> JobStatus:
     """Trigger model retraining as a background task."""
