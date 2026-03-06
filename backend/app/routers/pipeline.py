@@ -157,6 +157,8 @@ async def debug_db_counts() -> dict:
     """Temporary: check row counts in each table."""
     from sqlalchemy import text
     from app.database import async_session
+    # Version marker to verify deploy
+    _deploy_version = "v7-batch200"
 
     async with async_session() as session:
         tables = [
@@ -185,6 +187,7 @@ async def debug_db_counts() -> dict:
         except Exception as e:
             counts["sample_technicals"] = f"error: {e}"
 
+        counts["_deploy_version"] = _deploy_version
         return counts
 
 
@@ -382,8 +385,8 @@ async def debug_seed_one(symbol: str) -> dict:
         result["steps"].append(f"Computed {len(patterns)} patterns")
 
         # 5. Build rows (same as seed_stock)
-        # asyncpg caps at 32767 query params; ~73 cols × 400 rows = 29200 < limit
-        BATCH_SIZE = 400
+        # asyncpg caps at 32767 query params; 86 cols × 200 rows = 17200 safely under
+        BATCH_SIZE = 200
         all_rows: list[dict] = []
         last_date = features_df["date"].iloc[-1]
 
