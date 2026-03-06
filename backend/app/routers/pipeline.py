@@ -152,6 +152,23 @@ async def trigger_train(request: TrainRequest, background_tasks: BackgroundTasks
     )
 
 
+@router.get("/debug/version")
+async def debug_version() -> dict:
+    """Check deployed code version."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    # Force reimport
+    if "scripts.seed_historical" in sys.modules:
+        del sys.modules["scripts.seed_historical"]
+    from scripts.seed_historical import YEARS_BACK
+    import scripts.seed_historical as sh
+    # Read BATCH_SIZE from source
+    src = Path(sh.__file__).read_text()
+    batch_line = [l.strip() for l in src.split("\n") if "BATCH_SIZE" in l]
+    return {"batch_lines": batch_line, "years_back": YEARS_BACK, "file": sh.__file__}
+
+
 @router.get("/debug/db-counts")
 async def debug_db_counts() -> dict:
     """Temporary: check row counts in each table."""
