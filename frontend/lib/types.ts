@@ -1,5 +1,6 @@
 export interface Signal {
   symbol: string;
+  name: string | null;
   composite_score: number;
   breakout_probability: number;
   model_version: string | null;

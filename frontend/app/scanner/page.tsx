@@ -208,7 +208,7 @@ export default function ScannerPage() {
                 <TableHeader>
                   <TableRow className="border-zinc-800 hover:bg-transparent">
                     <TableHead className="text-zinc-400 w-12">#</TableHead>
-                    <TableHead className="text-zinc-400">Symbol</TableHead>
+                    <TableHead className="text-zinc-400">Company</TableHead>
                     <TableHead className="text-zinc-400">Score</TableHead>
                     <TableHead className="text-zinc-400">Pattern</TableHead>
                     <TableHead className="text-zinc-400">IV Rank</TableHead>
@@ -230,8 +230,13 @@ export default function ScannerPage() {
                       <TableCell className="text-zinc-500 font-mono text-xs">
                         {i + 1}
                       </TableCell>
-                      <TableCell className="font-bold text-zinc-100">
-                        {signal.symbol}
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-bold text-zinc-100 text-sm">{signal.symbol}</span>
+                          <span className="text-xs text-zinc-500 truncate max-w-[180px]">
+                            {signal.name || signal.sector || "—"}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell
                         className={`font-mono font-bold ${scoreColor(signal.composite_score)}`}

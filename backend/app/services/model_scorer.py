@@ -282,6 +282,7 @@ class ModelScorer:
             select(
                 Signal,
                 Stock.symbol,
+                Stock.name,
                 Stock.sector,
                 DailyBar.close,
                 TechnicalSnapshot.volume_ratio,
@@ -312,7 +313,7 @@ class ModelScorer:
         rows = result.all()
 
         signals = []
-        for sig, symbol, sector, close, vol_ratio, sma_50, sma_200, iv_rank in rows:
+        for sig, symbol, name, sector, close, vol_ratio, sma_50, sma_200, iv_rank in rows:
             # Determine dominant pattern from pattern score columns
             pattern = self._detect_pattern_label(sig)
             # SMA bullish: sma_50 > sma_200
@@ -322,6 +323,7 @@ class ModelScorer:
 
             signals.append({
                 "symbol": symbol,
+                "name": name,
                 "composite_score": float(sig.composite_score) if sig.composite_score else 0,
                 "breakout_probability": float(sig.breakout_probability) if sig.breakout_probability else 0,
                 "model_version": sig.model_version,

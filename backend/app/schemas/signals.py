@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class SignalResponse(BaseModel):
     symbol: str
+    name: str | None = None
     composite_score: float
     breakout_probability: float
     model_version: str | None = None
