@@ -3,45 +3,40 @@ export interface Signal {
   name: string | null;
   composite_score: number;
   breakout_probability: number;
-  model_version: string | null;
   date: string | null;
-  pattern?: string | null;
-  iv_rank?: number | null;
-  price?: number | null;
-  volume_ratio?: number | null;
-  sector?: string | null;
-  sma_bullish?: boolean | null;
-  // Sub-scores
-  technical_score?: number | null;
-  momentum_score?: number | null;
-  volume_score?: number | null;
-  pattern_score?: number | null;
-  regime_score?: number | null;
-  options_score?: number | null;
-  // Key technicals
-  rsi_14?: number | null;
-  adx_14?: number | null;
-  bb_pctb?: number | null;
-  // Trade suggestion
-  expected_move_pct?: number | null;
-  confidence?: number | null;
-  risk_reward_ratio?: number | null;
+  price: number | null;
+  volume_ratio: number | null;
+  sma_bullish: boolean | null;
+  rsi_14: number | null;
+  pattern: string | null;
+  sector: string | null;
+  drivers: string[];
 }
 
-export interface ScoreDetail {
-  symbol: string;
-  date: string;
-  composite_score: number;
-  breakout_probability: number;
+export interface SignalDetail extends Signal {
+  adx_14: number | null;
+  bb_pctb: number | null;
   component_scores: Record<string, number>;
-  top_features: FeatureDriver[];
+  top_features: Array<{
+    feature: string;
+    importance: number;
+    value: number | null;
+  }>;
 }
 
-export interface FeatureDriver {
-  feature: string;
-  importance: number;
-  value: number | null;
+export interface RegimeData {
+  regime: "BULL" | "BEAR" | "CHOPPY";
+  vix: number;
+  breadth: {
+    advance_decline: number;
+    pct_above_200sma: number;
+    new_highs_lows: number;
+  };
 }
+
+// Legacy interfaces for backward compatibility
+export type ScoreDetail = SignalDetail;
+export type FeatureDriver = SignalDetail["top_features"][0];
 
 export interface BacktestRequest {
   name?: string;

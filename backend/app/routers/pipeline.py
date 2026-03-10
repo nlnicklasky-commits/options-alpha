@@ -218,7 +218,7 @@ async def debug_db_counts() -> dict:
     from sqlalchemy import text
     from app.database import async_session
     # Version marker to verify deploy
-    _deploy_version = "v7-batch200"
+    _deploy_version = "v8-overhaul"
 
     async with async_session() as session:
         tables = [

@@ -2,15 +2,18 @@
 
 import logging
 import time
+from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.market_regime import MarketRegime
-from app.schemas.signals import SignalResponse
+from app.models.signals import Signal
+from app.models.stocks import Stock
+from app.schemas.signals import SignalDetailResponse, SignalResponse
 from app.services.model_scorer import ModelScorer
 
 router = APIRouter()
@@ -97,4 +100,105 @@ async def get_market_regime(
             pct_above_200sma=float(row.pct_above_sma200) if row.pct_above_sma200 else 0.0,
             new_highs_lows=round(hl_ratio, 2),
         ),
+    )
+
+
+@router.get("/{symbol}", response_model=SignalDetailResponse)
+async def get_signal_detail(
+    symbol: str,
+    db: AsyncSession = Depends(get_db),
+) -> SignalDetailResponse:
+    """Get detailed signal data for a single stock."""
+    today = date.today()
+
+    # Get the signal for today
+    stmt = (
+        select(Signal, Stock)
+        .join(Stock, Signal.stock_id == Stock.id)
+        .where(Stock.symbol == symbol.upper(), Signal.date == today)
+    )
+    result = await db.execute(stmt)
+    row = result.one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No signal found for {symbol} today")
+
+    sig, stock = row
+    scorer = ModelScorer(db)
+
+    # Try to get component scores and top features via score_single
+    component_scores: dict[str, float] = {}
+    top_features: list[dict] = []
+    try:
+        score_result = await scorer.score_single(symbol.upper())
+        component_scores = score_result.get("component_scores", {})
+        top_features = score_result.get("top_features", [])
+    except Exception:
+        logger.warning("Could not compute component scores for %s", symbol)
+
+    # Enrich with market data
+    from app.models.daily_bars import DailyBar
+    from app.models.technicals import TechnicalSnapshot
+
+    bar_stmt = (
+        select(DailyBar)
+        .where(DailyBar.stock_id == stock.id, DailyBar.date <= today)
+        .order_by(DailyBar.date.desc())
+        .limit(1)
+    )
+    bar = (await db.execute(bar_stmt)).scalar_one_or_none()
+
+    tech_stmt = (
+        select(TechnicalSnapshot)
+        .where(TechnicalSnapshot.stock_id == stock.id, TechnicalSnapshot.date <= today)
+        .order_by(TechnicalSnapshot.date.desc())
+        .limit(1)
+    )
+    tech = (await db.execute(tech_stmt)).scalar_one_or_none()
+
+    def _f(v: object) -> float | None:
+        return float(v) if v is not None else None
+
+    close = _f(bar.close) if bar else None
+    vol_ratio = _f(tech.volume_ratio) if tech else None
+    sma_50 = _f(tech.sma_50) if tech else None
+    sma_200 = _f(tech.sma_200) if tech else None
+    rsi_14 = _f(tech.rsi_14) if tech else None
+    adx_14 = _f(tech.adx_14) if tech else None
+    bb_pctb = _f(tech.bb_pctb) if tech else None
+
+    pattern_scores = {}
+    if tech:
+        pattern_scores = {
+            "cup & handle": tech.pattern_cup_handle,
+            "ascending triangle": tech.pattern_triangle_ascending,
+            "bull flag": tech.pattern_flag_bull,
+            "falling wedge": tech.pattern_wedge_falling,
+            "double bottom": tech.pattern_double_bottom,
+            "inv head & shoulders": tech.pattern_head_shoulders_inv,
+            "channel up": tech.pattern_channel_up,
+            "consolidation": tech.pattern_consolidation_score,
+        }
+    pattern = scorer._detect_pattern_from_technicals(pattern_scores)
+
+    sma_bullish: bool | None = None
+    if sma_50 is not None and sma_200 is not None:
+        sma_bullish = sma_50 > sma_200
+
+    drivers = scorer._generate_drivers(
+        rsi_14=rsi_14, adx_14=adx_14, bb_pctb=bb_pctb,
+        vol_ratio=vol_ratio, sma_bullish=sma_bullish, pattern=pattern,
+        composite_score=_f(sig.composite_score),
+        breakout_probability=_f(sig.breakout_probability),
+    )
+
+    return SignalDetailResponse(
+        symbol=stock.symbol, name=stock.name,
+        composite_score=_f(sig.composite_score) or 0,
+        breakout_probability=_f(sig.breakout_probability) or 0,
+        date=sig.date.isoformat(), price=close,
+        volume_ratio=vol_ratio, sma_bullish=sma_bullish,
+        rsi_14=rsi_14, adx_14=adx_14, bb_pctb=bb_pctb,
+        pattern=pattern, sector=stock.sector, drivers=drivers,
+        component_scores=component_scores, top_features=top_features,
     )
