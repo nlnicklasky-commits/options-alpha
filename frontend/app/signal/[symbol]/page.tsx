@@ -8,8 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TechnicalChart } from "@/components/technical-chart";
 import { api } from "@/lib/api";
 import { formatScore, scoreColor, scoreBgColor, formatPrice } from "@/lib/format";
-import type { SignalDetail } from "@/lib/types";
-import { ArrowLeft } from "lucide-react";
+import type { SignalDetail, DriverInfo } from "@/lib/types";
+import { ArrowLeft, ChevronDown, ChevronRight, TrendingUp, Activity, BarChart3, Waves, Shapes, Target } from "lucide-react";
 
 interface SignalPageProps {
   params: Promise<{ symbol: string }>;
@@ -97,31 +97,97 @@ function ComponentScoreBar({
   );
 }
 
-function DriverChip({ text }: { text: string }) {
-  let bgColor = "bg-zinc-500/20 text-zinc-400";
-  if (
-    text.toLowerCase().includes("momentum") ||
-    text.toLowerCase().includes("strong")
-  ) {
-    bgColor = "bg-emerald-500/20 text-emerald-400";
-  } else if (
-    text.toLowerCase().includes("volume") ||
-    text.toLowerCase().includes("unusual")
-  ) {
-    bgColor = "bg-blue-500/20 text-blue-400";
-  } else if (
-    text.toLowerCase().includes("pattern") ||
-    text.toLowerCase().includes("flag")
-  ) {
-    bgColor = "bg-purple-500/20 text-purple-400";
-  }
+const categoryMeta: Record<string, { icon: React.ReactNode; color: string; border: string; bg: string }> = {
+  momentum: {
+    icon: <TrendingUp className="h-4 w-4" />,
+    color: "text-emerald-400",
+    border: "border-emerald-500/30",
+    bg: "bg-emerald-500/10",
+  },
+  trend: {
+    icon: <Activity className="h-4 w-4" />,
+    color: "text-sky-400",
+    border: "border-sky-500/30",
+    bg: "bg-sky-500/10",
+  },
+  volume: {
+    icon: <BarChart3 className="h-4 w-4" />,
+    color: "text-blue-400",
+    border: "border-blue-500/30",
+    bg: "bg-blue-500/10",
+  },
+  volatility: {
+    icon: <Waves className="h-4 w-4" />,
+    color: "text-amber-400",
+    border: "border-amber-500/30",
+    bg: "bg-amber-500/10",
+  },
+  pattern: {
+    icon: <Shapes className="h-4 w-4" />,
+    color: "text-purple-400",
+    border: "border-purple-500/30",
+    bg: "bg-purple-500/10",
+  },
+  conviction: {
+    icon: <Target className="h-4 w-4" />,
+    color: "text-zinc-300",
+    border: "border-zinc-600/50",
+    bg: "bg-zinc-500/10",
+  },
+  other: {
+    icon: <Target className="h-4 w-4" />,
+    color: "text-zinc-400",
+    border: "border-zinc-700",
+    bg: "bg-zinc-800/50",
+  },
+};
+
+function DriverCard({ driver }: { driver: DriverInfo }) {
+  const [expanded, setExpanded] = useState(false);
+  const meta = categoryMeta[driver.category] || categoryMeta.other;
 
   return (
-    <span
-      className={`inline-block px-3 py-1.5 rounded-full text-xs font-medium ${bgColor}`}
+    <div
+      className={`rounded-lg border ${meta.border} ${meta.bg} transition-all cursor-pointer`}
+      onClick={() => setExpanded(!expanded)}
     >
-      {text}
-    </span>
+      <div className="flex items-center gap-3 px-4 py-3">
+        <span className={meta.color}>{meta.icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-zinc-200">{driver.label}</span>
+            <span className={`text-xs uppercase tracking-wide ${meta.color} opacity-60`}>
+              {driver.category}
+            </span>
+          </div>
+        </div>
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-zinc-500 shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-zinc-500 shrink-0" />
+        )}
+      </div>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-zinc-800/50 pt-3">
+          <div>
+            <div className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">
+              What is this?
+            </div>
+            <p className="text-sm text-zinc-400 leading-relaxed">
+              {driver.description}
+            </p>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">
+              What the model says
+            </div>
+            <p className="text-sm text-zinc-300 leading-relaxed">
+              {driver.signal}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -202,6 +268,25 @@ export default function SignalPage({ params }: SignalPageProps) {
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         {/* Left column */}
         <div className="space-y-6">
+          {/* Signal Drivers - promoted to primary position */}
+          {signal.drivers && signal.drivers.length > 0 && (
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardHeader>
+                <CardTitle className="text-zinc-100">
+                  Signal Drivers
+                  <span className="text-xs text-zinc-500 font-normal ml-2">
+                    Click to expand
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {signal.drivers.map((driver, i) => (
+                  <DriverCard key={i} driver={driver} />
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Score breakdown */}
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader>
@@ -320,20 +405,6 @@ export default function SignalPage({ params }: SignalPageProps) {
               )}
             </CardContent>
           </Card>
-
-          {/* Signal drivers */}
-          {signal.drivers && signal.drivers.length > 0 && (
-            <Card className="bg-zinc-900 border-zinc-800">
-              <CardHeader>
-                <CardTitle className="text-zinc-100">Signal Drivers</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {signal.drivers.map((driver, i) => (
-                  <DriverChip key={i} text={driver} />
-                ))}
-              </CardContent>
-            </Card>
-          )}
 
           {/* Pattern */}
           {signal.pattern && (

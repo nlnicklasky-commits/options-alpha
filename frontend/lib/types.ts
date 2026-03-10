@@ -1,3 +1,10 @@
+export interface DriverInfo {
+  label: string;
+  description: string;
+  signal: string;
+  category: "momentum" | "trend" | "volume" | "volatility" | "pattern" | "conviction" | "other";
+}
+
 export interface Signal {
   symbol: string;
   name: string | null;
@@ -10,7 +17,7 @@ export interface Signal {
   rsi_14: number | null;
   pattern: string | null;
   sector: string | null;
-  drivers: string[];
+  drivers: DriverInfo[];
 }
 
 export interface SignalDetail extends Signal {

@@ -3,6 +3,14 @@
 from pydantic import BaseModel
 
 
+class DriverInfo(BaseModel):
+    """Structured signal driver with human-readable explanation."""
+    label: str
+    description: str
+    signal: str
+    category: str = "other"
+
+
 class SignalResponse(BaseModel):
     symbol: str
     name: str | None = None
@@ -15,7 +23,7 @@ class SignalResponse(BaseModel):
     rsi_14: float | None = None
     pattern: str | None = None
     sector: str | None = None
-    drivers: list[str] = []
+    drivers: list[DriverInfo] = []
 
 
 class SignalDetailResponse(BaseModel):
@@ -32,7 +40,7 @@ class SignalDetailResponse(BaseModel):
     bb_pctb: float | None = None
     pattern: str | None = None
     sector: str | None = None
-    drivers: list[str] = []
+    drivers: list[DriverInfo] = []
     # Sub-scores (computed on-the-fly via score_single if available)
     component_scores: dict[str, float] = {}
     top_features: list[dict] = []

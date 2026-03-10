@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Table,
@@ -13,8 +13,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { formatPrice, formatScore, scoreColor } from "@/lib/format";
-import type { Signal } from "@/lib/types";
-import { ArrowUp, ArrowDown } from "lucide-react";
+import type { Signal, DriverInfo } from "@/lib/types";
+import { ArrowUp, ArrowDown, Info } from "lucide-react";
 
 interface SignalTableProps {
   signals?: Signal[];
@@ -51,36 +51,56 @@ function BreakoutBadge({ probability }: { probability: number }) {
   );
 }
 
-function DriverChip({ text }: { text: string }) {
-  // Try to infer color from driver content
-  let bgColor = "bg-zinc-500/20 text-zinc-400";
-  if (
-    text.toLowerCase().includes("momentum") ||
-    text.toLowerCase().includes("strong")
-  ) {
-    bgColor = "bg-emerald-500/20 text-emerald-400";
-  } else if (
-    text.toLowerCase().includes("volume") ||
-    text.toLowerCase().includes("unusual")
-  ) {
-    bgColor = "bg-blue-500/20 text-blue-400";
-  } else if (
-    text.toLowerCase().includes("pattern") ||
-    text.toLowerCase().includes("flag")
-  ) {
-    bgColor = "bg-purple-500/20 text-purple-400";
-  }
+const categoryColors: Record<string, string> = {
+  momentum: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  trend: "bg-sky-500/20 text-sky-400 border-sky-500/30",
+  volume: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  volatility: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  pattern: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  conviction: "bg-zinc-500/20 text-zinc-300 border-zinc-500/30",
+  other: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
+};
+
+function DriverChipWithTooltip({ driver }: { driver: DriverInfo }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const chipRef = useRef<HTMLSpanElement>(null);
+  const bgColor = categoryColors[driver.category] || categoryColors.other;
 
   return (
-    <span
-      className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${bgColor}`}
-    >
-      {text}
+    <span className="relative inline-block" ref={chipRef}>
+      <span
+        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap border cursor-help ${bgColor}`}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowTooltip(!showTooltip);
+        }}
+      >
+        {driver.label}
+        <Info className="h-3 w-3 opacity-50" />
+      </span>
+      {showTooltip && (
+        <div
+          className="absolute z-50 w-80 p-3 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 text-xs"
+          style={{ bottom: "calc(100% + 8px)", left: "0" }}
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+        >
+          <div className="font-semibold text-zinc-200 mb-1.5">{driver.label}</div>
+          <div className="text-zinc-400 mb-2 leading-relaxed">{driver.description}</div>
+          <div className="text-zinc-300 leading-relaxed border-t border-zinc-800 pt-2">
+            <span className="text-zinc-500 font-medium">Model says: </span>
+            {driver.signal}
+          </div>
+          <div className="absolute left-4 -bottom-1 w-2 h-2 bg-zinc-900 border-r border-b border-zinc-700 rotate-45" />
+        </div>
+      )}
     </span>
   );
 }
 
-function DriverColumn({ drivers }: { drivers: string[] }) {
+function DriverColumn({ drivers }: { drivers: DriverInfo[] }) {
   if (!drivers || drivers.length === 0) {
     return <span className="text-zinc-600 text-xs">—</span>;
   }
@@ -91,10 +111,10 @@ function DriverColumn({ drivers }: { drivers: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {shown.map((driver, i) => (
-        <DriverChip key={i} text={driver} />
+        <DriverChipWithTooltip key={i} driver={driver} />
       ))}
       {hidden > 0 && (
-        <span className="text-zinc-500 text-xs font-medium">+{hidden} more</span>
+        <span className="text-zinc-500 text-xs font-medium self-center">+{hidden} more</span>
       )}
     </div>
   );
@@ -193,7 +213,10 @@ export function SignalTable({ signals: propSignals, loading: propLoading }: Sign
                 </div>
               </TableHead>
               <TableHead className="text-zinc-400 min-w-[300px]">
-                Drivers
+                <div className="flex items-center gap-1">
+                  Drivers
+                  <span className="text-zinc-600 text-xs font-normal">(hover for details)</span>
+                </div>
               </TableHead>
               <TableHead className="text-zinc-400 w-20">Price</TableHead>
               <TableHead className="text-zinc-400 w-20">Volume</TableHead>

@@ -413,50 +413,256 @@ class ModelScorer:
         pattern: str | None = None,
         composite_score: float | None = None,
         breakout_probability: float | None = None,
-    ) -> list[str]:
-        """Generate human-readable driver strings explaining why this stock scored high."""
-        drivers: list[str] = []
+    ) -> list[dict]:
+        """Generate structured driver objects explaining why this stock scored high.
 
-        # Momentum indicators
+        Each driver includes:
+        - label: Short display text (e.g. "Strong momentum (RSI 72)")
+        - description: What this indicator measures
+        - signal: What the model is inferring from this value
+        - category: momentum | trend | volume | volatility | pattern | conviction
+        """
+        drivers: list[dict] = []
+
+        # Momentum indicators (RSI)
         if rsi_14 is not None:
             if rsi_14 > 70:
-                drivers.append(f"Overbought momentum — watch for pullback")
+                drivers.append({
+                    "label": "Overbought momentum — watch for pullback",
+                    "description": (
+                        "RSI (Relative Strength Index) measures the speed and size of recent "
+                        "price changes on a 0–100 scale. Above 70 is considered overbought."
+                    ),
+                    "signal": (
+                        f"RSI is at {rsi_14:.0f}, which is in overbought territory. The model "
+                        "flags this as a caution — strong momentum can persist, but the risk "
+                        "of a short-term pullback increases at these levels."
+                    ),
+                    "category": "momentum",
+                })
             elif rsi_14 > 60:
-                drivers.append(f"Strong momentum (RSI {rsi_14:.0f})")
+                drivers.append({
+                    "label": f"Strong momentum (RSI {rsi_14:.0f})",
+                    "description": (
+                        "RSI (Relative Strength Index) measures the speed and size of recent "
+                        "price changes on a 0–100 scale. 60–70 indicates strong upward momentum "
+                        "without being overbought."
+                    ),
+                    "signal": (
+                        f"RSI at {rsi_14:.0f} shows healthy bullish momentum. The model weighs "
+                        "this positively — stocks in this range tend to continue trending higher "
+                        "in the near term."
+                    ),
+                    "category": "momentum",
+                })
+            elif rsi_14 < 30:
+                drivers.append({
+                    "label": f"Oversold (RSI {rsi_14:.0f})",
+                    "description": (
+                        "RSI (Relative Strength Index) measures the speed and size of recent "
+                        "price changes on a 0–100 scale. Below 30 is considered oversold."
+                    ),
+                    "signal": (
+                        f"RSI at {rsi_14:.0f} means selling pressure may be exhausted. The model "
+                        "sees oversold stocks as potential bounce candidates, especially when "
+                        "combined with bullish chart patterns."
+                    ),
+                    "category": "momentum",
+                })
 
-        # Trend strength
+        # Trend strength (ADX)
         if adx_14 is not None and adx_14 > 25:
-            drivers.append(f"Strong trend strength (ADX {adx_14:.0f})")
+            drivers.append({
+                "label": f"Strong trend strength (ADX {adx_14:.0f})",
+                "description": (
+                    "ADX (Average Directional Index) measures how strong a trend is, regardless "
+                    "of direction, on a 0–100 scale. Above 25 indicates a meaningful trend is "
+                    "in place; above 50 is a very strong trend."
+                ),
+                "signal": (
+                    f"ADX at {adx_14:.0f} confirms this stock is trending, not ranging. The model "
+                    "favors stocks with strong trends because breakouts from trending stocks "
+                    "are more likely to follow through."
+                ),
+                "category": "trend",
+            })
 
         # Volume
         if vol_ratio is not None and vol_ratio > 1.5:
-            drivers.append(f"Unusual volume ({vol_ratio:.1f}x average)")
+            drivers.append({
+                "label": f"Unusual volume ({vol_ratio:.1f}x average)",
+                "description": (
+                    "Volume ratio compares today's trading volume to the 20-day average. "
+                    "A ratio above 1.5x means significantly more shares are changing hands "
+                    "than normal — often a sign of institutional interest."
+                ),
+                "signal": (
+                    f"Volume is running at {vol_ratio:.1f}x the average. The model treats "
+                    "elevated volume as confirmation of price moves — breakouts on high volume "
+                    "are far more reliable than those on low volume."
+                ),
+                "category": "volume",
+            })
 
         # SMA trend
         if sma_bullish is not None:
             if sma_bullish:
-                drivers.append("Bullish trend (above 200-day MA)")
+                drivers.append({
+                    "label": "Bullish trend (above 200-day MA)",
+                    "description": (
+                        "The 50-day moving average is above the 200-day moving average (a "
+                        "'golden cross' setup). This is a widely-followed signal that the "
+                        "long-term trend is bullish."
+                    ),
+                    "signal": (
+                        "The model gives a significant boost to stocks in a bullish trend "
+                        "structure. Historically, breakouts in uptrending stocks produce "
+                        "larger and more sustained moves."
+                    ),
+                    "category": "trend",
+                })
             else:
-                drivers.append("Below long-term trend")
+                drivers.append({
+                    "label": "Below long-term trend",
+                    "description": (
+                        "The 50-day moving average is below the 200-day moving average (a "
+                        "'death cross' setup). This indicates the long-term trend is bearish."
+                    ),
+                    "signal": (
+                        "The model notes the bearish trend structure as a risk factor. However, "
+                        "some of the best breakout trades come from oversold stocks reversing — "
+                        "this is factored into the overall score."
+                    ),
+                    "category": "trend",
+                })
 
         # Bollinger Bands
         if bb_pctb is not None:
             if bb_pctb > 0.8:
-                drivers.append("Near upper Bollinger Band")
+                drivers.append({
+                    "label": "Near upper Bollinger Band",
+                    "description": (
+                        "Bollinger Band %B measures where the price sits relative to its "
+                        "Bollinger Bands (2 standard deviations from the 20-day average). "
+                        "Above 80% means the price is near the upper band."
+                    ),
+                    "signal": (
+                        f"BB %B is at {bb_pctb:.0%}, near the upper band. The model interprets "
+                        "this as strong momentum, though it also increases the probability of "
+                        "a mean-reversion pullback."
+                    ),
+                    "category": "volatility",
+                })
             elif bb_pctb < 0.2:
-                drivers.append("Near lower Bollinger Band — potential bounce")
+                drivers.append({
+                    "label": "Near lower Bollinger Band — potential bounce",
+                    "description": (
+                        "Bollinger Band %B measures where the price sits relative to its "
+                        "Bollinger Bands (2 standard deviations from the 20-day average). "
+                        "Below 20% means the price is near the lower band."
+                    ),
+                    "signal": (
+                        f"BB %B is at {bb_pctb:.0%}, near the lower band. The model sees this "
+                        "as a potential bounce setup — prices tend to revert toward the middle "
+                        "band, making this an attractive entry for a breakout trade."
+                    ),
+                    "category": "volatility",
+                })
 
         # Chart pattern
         if pattern is not None:
-            drivers.append(f"Chart pattern: {pattern}")
+            pattern_descriptions = {
+                "cup & handle": (
+                    "A bullish continuation pattern shaped like a tea cup. The price forms "
+                    "a rounded bottom, rallies back, then pulls back slightly (the handle) "
+                    "before breaking out higher."
+                ),
+                "ascending triangle": (
+                    "A bullish pattern with a flat resistance line and rising support. "
+                    "Buyers are willing to pay higher prices with each dip, building "
+                    "pressure for an upside breakout."
+                ),
+                "bull flag": (
+                    "A short consolidation (flag) after a sharp move up (flagpole). "
+                    "This tight pullback suggests buyers are resting, not exiting, and "
+                    "a continuation higher is likely."
+                ),
+                "falling wedge": (
+                    "A bullish reversal pattern where price makes lower highs and lower "
+                    "lows that converge. The narrowing range signals selling pressure is "
+                    "fading, often leading to an upside breakout."
+                ),
+                "double bottom": (
+                    "A 'W'-shaped reversal pattern where price tests a support level twice "
+                    "and holds. The second bounce confirms that buyers are defending that "
+                    "price level, setting up a move higher."
+                ),
+                "inv head & shoulders": (
+                    "An inverted head-and-shoulders is a bullish reversal pattern. Three "
+                    "troughs with the middle one (head) being the deepest, suggesting "
+                    "selling exhaustion and a trend reversal."
+                ),
+                "channel up": (
+                    "Price is moving within a well-defined upward channel (parallel support "
+                    "and resistance lines). This indicates an orderly uptrend with "
+                    "predictable pullback-to-support buying opportunities."
+                ),
+                "consolidation": (
+                    "Price is trading in a tight range after a move. This compression of "
+                    "volatility often precedes a significant breakout as energy builds "
+                    "for the next move."
+                ),
+            }
+            pattern_desc = pattern_descriptions.get(
+                pattern,
+                f"A technical chart pattern ({pattern}) recognized by the model's pattern "
+                "detection algorithms."
+            )
+            drivers.append({
+                "label": f"Chart pattern: {pattern}",
+                "description": pattern_desc,
+                "signal": (
+                    f"The model detected a {pattern} formation with high confidence. "
+                    "Chart patterns are one of the strongest features in the ensemble — "
+                    "they capture price structure that pure indicators can miss."
+                ),
+                "category": "pattern",
+            })
 
         # Overall conviction
         if composite_score is not None and composite_score > 80:
-            drivers.append("High conviction signal")
+            drivers.append({
+                "label": "High conviction signal",
+                "description": (
+                    "The composite score is an ensemble average across XGBoost, LightGBM, "
+                    "and Random Forest models. Each model independently evaluates the stock "
+                    "on ~30 technical features. A score above 80 means all three models "
+                    "agree this stock has strong breakout potential."
+                ),
+                "signal": (
+                    f"At a score of {composite_score:.0f}/100, this ranks in the top tier. "
+                    "High-conviction signals historically have the best hit rate — the models "
+                    "are in strong agreement that the technical setup favors a breakout."
+                ),
+                "category": "conviction",
+            })
 
         # Breakout probability
         if breakout_probability is not None and breakout_probability > 0.75:
-            drivers.append(f"Strong breakout probability ({breakout_probability:.0%})")
+            drivers.append({
+                "label": f"Strong breakout probability ({breakout_probability:.0%})",
+                "description": (
+                    "Breakout probability is the ensemble's estimated chance that this stock "
+                    "will experience a significant upward move within the next 5–10 trading days. "
+                    "It's derived from the model's raw prediction scores."
+                ),
+                "signal": (
+                    f"At {breakout_probability:.0%}, the model estimates a strong likelihood of "
+                    "a breakout. This means the combination of momentum, volume, trend, and "
+                    "pattern features all point in the same direction."
+                ),
+                "category": "conviction",
+            })
 
         return drivers
 
