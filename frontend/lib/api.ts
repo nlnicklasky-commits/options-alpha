@@ -1,4 +1,10 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+/**
+ * API client — uses relative "/api" paths so Next.js rewrites proxy
+ * all requests to the backend. This avoids CORS entirely in production.
+ *
+ * In local dev, next.config.ts rewrites /api/* → http://localhost:8000/api/*
+ * In production (Vercel), next.config.ts rewrites /api/* → $BACKEND_URL/api/*
+ */
 
 interface FetchOptions extends RequestInit {
   params?: Record<string, string>;
@@ -10,7 +16,8 @@ export async function api<T>(
 ): Promise<T> {
   const { params, ...fetchOptions } = options;
 
-  let url = `${API_URL}${path}`;
+  // Always use relative path — Next.js rewrites handle proxying
+  let url = path;
   if (params) {
     const searchParams = new URLSearchParams(params);
     url += `?${searchParams.toString()}`;

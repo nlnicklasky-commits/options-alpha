@@ -3,9 +3,17 @@ set -euo pipefail
 
 # Options Alpha deployment script
 # Pushes to git (triggers Railway + Vercel deploys), then verifies health.
+#
+# Usage:
+#   BACKEND_URL=https://xxx.up.railway.app FRONTEND_URL=https://xxx.vercel.app ./scripts/deploy.sh
 
-BACKEND_URL="${BACKEND_URL:-https://your-app.up.railway.app}"
-FRONTEND_URL="${FRONTEND_URL:-https://your-app.vercel.app}"
+if [ -z "${BACKEND_URL:-}" ] || [ -z "${FRONTEND_URL:-}" ]; then
+    echo "ERROR: BACKEND_URL and FRONTEND_URL must be set."
+    echo ""
+    echo "Usage:"
+    echo "  BACKEND_URL=https://your-app.up.railway.app FRONTEND_URL=https://your-app.vercel.app ./scripts/deploy.sh"
+    exit 1
+fi
 
 echo "==> Pushing to git (triggers Railway + Vercel deploys)..."
 git push origin main
