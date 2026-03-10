@@ -11,6 +11,21 @@ export interface Signal {
   volume_ratio?: number | null;
   sector?: string | null;
   sma_bullish?: boolean | null;
+  // Sub-scores
+  technical_score?: number | null;
+  momentum_score?: number | null;
+  volume_score?: number | null;
+  pattern_score?: number | null;
+  regime_score?: number | null;
+  options_score?: number | null;
+  // Key technicals
+  rsi_14?: number | null;
+  adx_14?: number | null;
+  bb_pctb?: number | null;
+  // Trade suggestion
+  expected_move_pct?: number | null;
+  confidence?: number | null;
+  risk_reward_ratio?: number | null;
 }
 
 export interface ScoreDetail {

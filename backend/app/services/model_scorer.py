@@ -11,7 +11,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ml.features import FeatureBuilder
@@ -276,35 +276,90 @@ class ModelScorer:
         return results
 
     async def get_top_signals(self, n: int = 20, min_score: float = 60.0) -> list[dict]:
-        """Query signals table for today's best opportunities, enriched with market data."""
+        """Query signals table for today's best opportunities, enriched with market data.
+
+        Uses the most recent DailyBar/TechnicalSnapshot/OptionsSnapshot for each stock
+        (not just exact signal-date matches), so enrichment data shows even when the
+        signal date is ahead of the latest available market data.
+        """
         today = date.today()
+
+        # Subqueries: get the most recent row for each stock (within 7 days of signal)
+        latest_bar = (
+            select(DailyBar.stock_id, DailyBar.close)
+            .where(DailyBar.stock_id == Signal.stock_id, DailyBar.date <= today)
+            .order_by(DailyBar.date.desc())
+            .limit(1)
+            .correlate(Signal)
+            .lateral("latest_bar")
+        )
+
+        latest_tech = (
+            select(
+                TechnicalSnapshot.stock_id,
+                TechnicalSnapshot.volume_ratio,
+                TechnicalSnapshot.sma_50,
+                TechnicalSnapshot.sma_200,
+                TechnicalSnapshot.rsi_14,
+                TechnicalSnapshot.adx_14,
+                TechnicalSnapshot.bb_pctb,
+                TechnicalSnapshot.pattern_wedge_falling,
+                TechnicalSnapshot.pattern_wedge_rising,
+                TechnicalSnapshot.pattern_triangle_ascending,
+                TechnicalSnapshot.pattern_triangle_descending,
+                TechnicalSnapshot.pattern_triangle_symmetric,
+                TechnicalSnapshot.pattern_flag_bull,
+                TechnicalSnapshot.pattern_flag_bear,
+                TechnicalSnapshot.pattern_pennant,
+                TechnicalSnapshot.pattern_cup_handle,
+                TechnicalSnapshot.pattern_double_bottom,
+                TechnicalSnapshot.pattern_head_shoulders_inv,
+                TechnicalSnapshot.pattern_channel_up,
+                TechnicalSnapshot.pattern_consolidation_score,
+            )
+            .where(TechnicalSnapshot.stock_id == Signal.stock_id, TechnicalSnapshot.date <= today)
+            .order_by(TechnicalSnapshot.date.desc())
+            .limit(1)
+            .correlate(Signal)
+            .lateral("latest_tech")
+        )
+
+        latest_opts = (
+            select(OptionsSnapshot.stock_id, OptionsSnapshot.iv_rank)
+            .where(OptionsSnapshot.stock_id == Signal.stock_id, OptionsSnapshot.date <= today)
+            .order_by(OptionsSnapshot.date.desc())
+            .limit(1)
+            .correlate(Signal)
+            .lateral("latest_opts")
+        )
+
         stmt = (
             select(
                 Signal,
                 Stock.symbol,
                 Stock.name,
                 Stock.sector,
-                DailyBar.close,
-                TechnicalSnapshot.volume_ratio,
-                TechnicalSnapshot.sma_50,
-                TechnicalSnapshot.sma_200,
-                OptionsSnapshot.iv_rank,
+                latest_bar.c.close,
+                latest_tech.c.volume_ratio,
+                latest_tech.c.sma_50,
+                latest_tech.c.sma_200,
+                latest_tech.c.rsi_14,
+                latest_tech.c.adx_14,
+                latest_tech.c.bb_pctb,
+                latest_tech.c.pattern_cup_handle,
+                latest_tech.c.pattern_triangle_ascending,
+                latest_tech.c.pattern_flag_bull,
+                latest_tech.c.pattern_wedge_falling,
+                latest_tech.c.pattern_double_bottom,
+                latest_tech.c.pattern_head_shoulders_inv,
+                latest_tech.c.pattern_channel_up,
+                latest_tech.c.pattern_consolidation_score,
+                latest_opts.c.iv_rank,
             )
             .join(Stock, Signal.stock_id == Stock.id)
-            .outerjoin(
-                DailyBar,
-                (Signal.stock_id == DailyBar.stock_id) & (Signal.date == DailyBar.date),
-            )
-            .outerjoin(
-                TechnicalSnapshot,
-                (Signal.stock_id == TechnicalSnapshot.stock_id)
-                & (Signal.date == TechnicalSnapshot.date),
-            )
-            .outerjoin(
-                OptionsSnapshot,
-                (Signal.stock_id == OptionsSnapshot.stock_id)
-                & (Signal.date == OptionsSnapshot.date),
-            )
+            .outerjoin(latest_bar, true())
+            .outerjoin(latest_tech, true())
+            .outerjoin(latest_opts, true())
             .where(Signal.date == today, Signal.composite_score >= Decimal(str(min_score)))
             .order_by(Signal.composite_score.desc())
             .limit(n)
@@ -313,36 +368,89 @@ class ModelScorer:
         rows = result.all()
 
         signals = []
-        for sig, symbol, name, sector, close, vol_ratio, sma_50, sma_200, iv_rank in rows:
-            # Determine dominant pattern from pattern score columns
-            pattern = self._detect_pattern_label(sig)
+        for row in rows:
+            sig = row[0]
+            symbol = row[1]
+            name = row[2]
+            sector = row[3]
+            close = row[4]
+            vol_ratio = row[5]
+            sma_50 = row[6]
+            sma_200 = row[7]
+            rsi_14 = row[8]
+            adx_14 = row[9]
+            bb_pctb = row[10]
+            # Pattern columns (11-18)
+            pattern_scores = {
+                "cup & handle": row[11],
+                "ascending triangle": row[12],
+                "bull flag": row[13],
+                "falling wedge": row[14],
+                "double bottom": row[15],
+                "inv head & shoulders": row[16],
+                "channel up": row[17],
+                "consolidation": row[18],
+            }
+            iv_rank = row[19]
+
+            # Determine dominant pattern from TechnicalSnapshot pattern columns
+            pattern = self._detect_pattern_from_technicals(pattern_scores)
+
             # SMA bullish: sma_50 > sma_200
             sma_bullish: bool | None = None
             if sma_50 is not None and sma_200 is not None:
                 sma_bullish = float(sma_50) > float(sma_200)
 
+            def _f(v: object) -> float | None:
+                """Convert Decimal/numeric to float or None."""
+                return float(v) if v is not None else None
+
             signals.append({
                 "symbol": symbol,
                 "name": name,
-                "composite_score": float(sig.composite_score) if sig.composite_score else 0,
-                "breakout_probability": float(sig.breakout_probability) if sig.breakout_probability else 0,
+                "composite_score": _f(sig.composite_score) or 0,
+                "breakout_probability": _f(sig.breakout_probability) or 0,
                 "model_version": sig.model_version,
                 "date": sig.date.isoformat(),
                 "pattern": pattern,
-                "iv_rank": float(iv_rank) if iv_rank else None,
-                "price": float(close) if close else None,
-                "volume_ratio": float(vol_ratio) if vol_ratio else None,
+                "iv_rank": _f(iv_rank),
+                "price": _f(close),
+                "volume_ratio": _f(vol_ratio),
                 "sector": sector,
                 "sma_bullish": sma_bullish,
+                # Sub-scores from Signal model
+                "technical_score": _f(sig.technical_score),
+                "momentum_score": _f(sig.momentum_score),
+                "volume_score": _f(sig.volume_score),
+                "pattern_score": _f(sig.pattern_score),
+                "regime_score": _f(sig.regime_score),
+                "options_score": _f(sig.options_score),
+                # Key technicals
+                "rsi_14": _f(rsi_14),
+                "adx_14": _f(adx_14),
+                "bb_pctb": _f(bb_pctb),
+                # Trade suggestion
+                "expected_move_pct": _f(sig.expected_move_pct),
+                "confidence": _f(sig.confidence),
+                "risk_reward_ratio": _f(sig.risk_reward_ratio),
             })
         return signals
 
     @staticmethod
-    def _detect_pattern_label(sig: Signal) -> str | None:
-        """Extract pattern label from signal notes if stored there."""
-        if sig.notes:
-            return sig.notes.split(":")[0].strip() if ":" in sig.notes else sig.notes.strip()
-        return None
+    def _detect_pattern_from_technicals(pattern_scores: dict[str, object]) -> str | None:
+        """Find the dominant chart pattern from TechnicalSnapshot pattern columns.
+
+        Returns the pattern with the highest score above 50, or None.
+        """
+        best_name: str | None = None
+        best_score: float = 50.0  # minimum threshold
+        for name, val in pattern_scores.items():
+            if val is not None:
+                score = float(val)
+                if score > best_score:
+                    best_score = score
+                    best_name = name
+        return best_name
 
     async def _get_latest_options(self, stock_id: int, ref_date: date) -> dict | None:
         """Get latest options snapshot for a stock."""
